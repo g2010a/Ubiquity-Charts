@@ -1,7 +1,8 @@
 /* Graphs pie, bar, and line charts.
 *  Updated to the new parser by Ammad http://github.com/ammad
+*  Extended to use different decimal separators by Armando
 */
- 
+var decsep = ".";
 var colors = "&chco=94B6D2,D6AA20,759E00,D8773A,007777,B53A3A,713871,4A6E21,979000",
     //"&chco=7979B2,C6C6FF,E0E0FF,B2A567,FFF5C6";
     noun_type_chart = new CmdUtils.NounType( "chart",
@@ -9,45 +10,33 @@ var colors = "&chco=94B6D2,D6AA20,759E00,D8773A,007777,B53A3A,713871,4A6E21,9790
     ),
     noun_type_width_height = new CmdUtils.NounType( "width[xheight]",
       /^\d+(x\d+)?$/, "400x200"
+    ),
+	noun_type_decimal_separator = new CmdUtils.NounType( "separator",
+      [".", ","], "."
     );
  
-function selectionToArray( string ) {
-  // expects you to pass a well-formed table of data with labels is 1st column
- 
-  // convert tags to delimiters ("," for values, "|" for records), then split data into rows
- 
-  var tmpData = //string.replace(/([0-9]),([0-9])/g,"$1$2").replace(/\$([0-9])/g,"$1").replace(/([0-9])\%/g,"$1").replace(/, */g,"%2C").replace(/\|/g, "%7C").replace(/\r\n/g, "|").replace(/\n/g, "|").replace(/\t/g,",").replace(/\t\t/g,"\t0\t").split(/\|/);
-  
-      CmdUtils.getHtmlSelection(context).replace(/([0-9]),([0-9])/g,"$1$2").replace(/\$([0-9])/g,"$1").replace(/([0-9])\%/g,"$1").replace(/, */g,"%2C").replace(/\|/g, "%7C").replace(/\r\n|\n/g, "|").replace(/<\/{0,1}tr[^>]*>/g, "|").replace(/^\|/g, "").replace(/\|\|/g, "|").replace(/\|$/g, "").replace(/<\/td[^>]*>/g, ",").replace(/,\|/g, "|").replace(/,$/g, "").replace(/<[^>]*>/g, "").replace(/\|\|/g, "|").split(/\|/);
- 
-  var rows = tmpData.length;
-  var tableData = new Array(rows);
- 
-  // parse rows into columns
-  for(var i=0; i<rows; i++){
-    tableData[i] = tmpData[i].split(/,/);
-  }
-  
-  return tableData;
-}
-
-function num(text){
+function to_num(text){
+  if(decsep == ",") text = text.replace(".","").replace(",",".");
   return +text.replace(/[^\d\.]/g,"")
 }
 
+/**
+ * retrieves selected table from DOM
+ */
 function getTable(selection){
   var table = {
     firstrow: selection.getRangeAt(0).startContainer,
     lastrow: selection.getRangeAt(selection.rangeCount-1).endContainer
   };
   // for single (non-ctrl) selections
-  if (selection.rangeCount == 1)
+  if (selection.rangeCount == 1) {
     table = {
       firstcell: jQuery(table.firstrow).closest("td,th")[0],
       lastcell: jQuery(table.lastrow).closest("td,th")[0],
-      firstrow: jQuery(table.firstcell).closest("tr")[0],
-      lastrow: jQuery(table.lastcell).closest("tr")[0]
-    };
+      firstrow: jQuery(table.firstrow).closest("tr")[0],
+      lastrow: jQuery(table.lastrow).closest("tr")[0]
+    }
+  };
   if (!table.lastrow) return;
   table.rows = table.lastrow.rowIndex - table.firstrow.rowIndex + 1;
   if (selection.rangeCount > 1) {
@@ -70,6 +59,9 @@ function getTable(selection){
   return table;
 }
 
+/**
+ * Returns an array of the actual text in the cells 
+ */
 function tableToArray(table){
   if ( table.firstrow ) var info = table;
   var table = $( table.firstrow || table ).closest("table");
@@ -79,14 +71,17 @@ function tableToArray(table){
       if ( info && ( i < info.firstrow.rowIndex ||
                      i > info.lastrow.rowIndex )) return null;
       return $(this.children).map(
-        function(i){
-          if ( info && ( i < info.firstcell.cellIndex ||
-                     i > info.lastcell.cellIndex )) return null;
+        function(j){
+          if ( info && ( j < info.firstcell.cellIndex ||
+                     j > info.lastcell.cellIndex )) return null;
           return $(this).text()
         })
     })
 }
  
+/**
+ * Returns an object with labels and other relevant data; transforms cells into numbers.
+ */
 function graphObj(tableData){
   var rows = tableData.length;
   var columns = tableData[0].length;
@@ -98,17 +93,27 @@ function graphObj(tableData){
     max: Number.MIN_VALUE,
     string: tableData
   }
- 
-    // copy the first column into a array of labels, rest into 2 dimensional array of values
+  
+  // copy the first column into a array of labels, rest into 2 dimensional array of values
   for(i=0; i<rows; i++) {
-    // build labels with the first element of each row
-    data.labels[i] = tableData[i][0];
-    data.values[i] = new Array(columns-1);
-    for (var j=1;j<columns; j++){
-      data.values[i][j-1] = num(tableData[i][j]);
-      if (data.values[i][j-1]<data.min) data.min = data.values[i][j-1];
-      if (data.values[i][j-1]>data.max) data.max = data.values[i][j-1];
-    }
+	// create generic labels if only 1 column is selected
+	if (columns == 1) {
+		data.labels[i] = i;
+		data.values[i] = new Array(1)
+		data.values[i][0] = to_num(tableData[i][0]);
+	    if (data.values[i][0]<data.min) data.min = data.values[i][0];
+		if (data.values[i][0]>data.max) data.max = data.values[i][0];
+
+	}
+	else {
+		data.labels[i] = tableData[i][0];
+		data.values[i] = new Array(columns-1);
+		for (var j=1;j<columns; j++){
+		  data.values[i][j-1] = to_num(tableData[i][j]);
+		  if (data.values[i][j-1]<data.min) data.min = data.values[i][j-1];
+		  if (data.values[i][j-1]>data.max) data.max = data.values[i][j-1];
+		}
+	}
   }
  
   return data;
@@ -173,6 +178,7 @@ function scaleTo100(valArray, maxVal){
  
 function  dataToChart( args ) {
   var data, table = getTable( CmdUtils.getWindow().getSelection() );
+  decsep = args.instrument.text;
   if (table)
     data = graphObj(tableToArray(table));
  
@@ -215,7 +221,7 @@ function  dataToChart( args ) {
         line:colors
       })[args.format.text];
  
-  img = "<img src='http://chart.apis.google.com/chart?cht="+urlstart+"&chs="+graphWidth+"x"+graphHeight+"&chl="+data.labelquery+"&chd=t:"+data.valuequery+"&chds="+ymin+","+data.max+"&chtxt=x,y&chxr=0,"+ymin+","+data.max+urlend+"'/>";
+  img = "<img src='http://chart.earth2marsh.apigee.com/chart?cht="+urlstart+"&chs="+graphWidth+"x"+graphHeight+"&chl="+data.labelquery+"&chd=t:"+data.valuequery+"&chds="+ymin+","+data.max+"&chtxt=x,y&chxr=0,"+ymin+","+data.max+urlend+"'/>";
   return img;
  
 }
@@ -224,17 +230,17 @@ CmdUtils.CreateCommand({
   names: ["chart"],
   arguments: [ {role: "object", nountype: noun_arb_text, label: "Column of labels and column(s) of values"},
                {role: "format", nountype: noun_type_chart},
-               {role: "modifier", nountype: noun_type_width_height}
+               {role: "modifier", nountype: noun_type_width_height},
+			   {role: "instrument", nountype: noun_type_decimal_separator}
              ],
   icon: "chrome://ubiquity/skin/icons/calculator.png",
   description: "Turn numeric data into charts using the Google Charts API.",
-  help: "Select a table. Chart types supported: pie, bar, line and tline(transposed line graph)",
+  help: "Select a table. Chart types supported: pie, bar, line and tline(transposed line graph). Decimal separators: \".\" and \",\"<p>Example: <em>Chart in Line of 500x500 with ,</em></p>",
   homepage: "http://earth2marsh.com/ubiquity/",
   author: {name: "Marsh Gardiner", email: "ubiquity@earth2marsh.com"},
   license: "MPL",
  
   preview: function(pblock, args) {
- 
     if (!args.object.html) {
       this.previewDefault(pblock);
       return;
